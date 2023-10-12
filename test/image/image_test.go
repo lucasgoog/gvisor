@@ -351,6 +351,12 @@ func testDocker(t *testing.T, overlay bool) {
 			},
 		}
 	}
+	// Add cgroups mount in runsc to enable cgroups in the container.
+	opts.Mounts = append(opts.Mounts,
+		mount.Mount{
+			Target: "/sys/fs/cgroup",
+			Type:   mount.TypeTmpfs,
+		})
 	if err := d.Spawn(ctx, opts); err != nil {
 		t.Fatalf("docker run failed: %v", err)
 	}

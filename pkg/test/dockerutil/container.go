@@ -135,7 +135,9 @@ func makeContainer(ctx context.Context, logger testutil.Logger, runtime string) 
 //
 // Containers will check flags for profiling requests.
 func MakeContainer(ctx context.Context, logger testutil.Logger) *Container {
-	return makeContainer(ctx, logger, *runtime)
+	c := makeContainer(ctx, logger, *runtime)
+	//c.mounts = append(c.mounts, mount.Mount{Target: "/sys/fs/cgroup", Type: "tmpfs"})
+	return c
 }
 
 // MakeContainerWithRuntime is like MakeContainer, but allows for a runtime

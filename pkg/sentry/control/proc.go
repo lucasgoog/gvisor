@@ -141,6 +141,9 @@ type ExecArgs struct {
 
 	// Limits is the limit set for the process being executed.
 	Limits *limits.LimitSet
+
+	// Cgroupfs indicates if cgroups should be enabled for the process.
+	Cgroupfs bool
 }
 
 // String prints the arguments as a string.
@@ -270,6 +273,20 @@ func (proc *Proc) execAsync(args *ExecArgs) (*kernel.ThreadGroup, kernel.ThreadI
 		return nil, 0, nil, err
 	}
 
+	// Set cgroups to the new exec task.
+	if args.Cgroupfs {
+		cgroupRegistry := proc.Kernel.CgroupRegistry()
+		for _, ctrl := range kernel.CgroupCtrls {
+			cg, err := cgroupRegistry.FindCgroup(ctx, ctrl, "/"+args.ContainerID)
+			if err != nil {
+				return nil, 0, nil, fmt.Errorf("cgroup mount for controller %v  not found", ctrl)
+			}
+			if initArgs.InitialCgroups == nil {
+				initArgs.InitialCgroups = make(map[kernel.Cgroup]struct{}, len(kernel.CgroupCtrls))
+			}
+			initArgs.InitialCgroups[cg] = struct{}{}
+		}
+	}
 	tg, tid, err := proc.Kernel.CreateProcess(initArgs)
 	if err != nil {
 		return nil, 0, nil, err
