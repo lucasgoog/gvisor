@@ -48,6 +48,10 @@ const (
 	CgroupControllerPIDs    = CgroupControllerType("pids")
 )
 
+// SupportedCgroupCtrls is the list of cgroup controllers which are supported
+// by default in runsc.
+var SupportedCgroupCtrls = []CgroupControllerType{"cpu", "cpuacct", "memory"}
+
 // ParseCgroupController parses a string as a CgroupControllerType.
 func ParseCgroupController(val string) (CgroupControllerType, error) {
 	switch val {

@@ -26,6 +26,7 @@ import (
 
 	"gvisor.dev/gvisor/pkg/abi/linux"
 	"gvisor.dev/gvisor/pkg/fd"
+	"gvisor.dev/gvisor/pkg/log"
 	"gvisor.dev/gvisor/pkg/sentry/fdimport"
 	"gvisor.dev/gvisor/pkg/sentry/fsimpl/host"
 	"gvisor.dev/gvisor/pkg/sentry/fsimpl/user"
@@ -141,6 +142,9 @@ type ExecArgs struct {
 
 	// Limits is the limit set for the process being executed.
 	Limits *limits.LimitSet
+
+	// Cgroupfs indicates if cgroups should be enabled for the process.
+	Cgroupfs bool
 }
 
 // String prints the arguments as a string.
@@ -270,6 +274,23 @@ func (proc *Proc) execAsync(args *ExecArgs) (*kernel.ThreadGroup, kernel.ThreadI
 		return nil, 0, nil, err
 	}
 
+	// Set cgroups to the new exec task.
+	if args.Cgroupfs {
+		controllers := []kernel.CgroupControllerType{"cpu", "cpuacct", "memory"}
+		cgroupRegistry := proc.Kernel.CgroupRegistry()
+		for _, ctrl := range controllers {
+			cg, err := cgroupRegistry.FindCgroup(ctx, ctrl, "/"+args.ContainerID)
+			if err != nil {
+				log.Warningf("cgroup mount for controller %v  not found", ctrl)
+				continue
+			} else {
+				if initArgs.InitialCgroups == nil {
+					initArgs.InitialCgroups = make(map[kernel.Cgroup]struct{}, len(controllers))
+				}
+				initArgs.InitialCgroups[cg] = struct{}{}
+			}
+		}
+	}
 	tg, tid, err := proc.Kernel.CreateProcess(initArgs)
 	if err != nil {
 		return nil, 0, nil, err

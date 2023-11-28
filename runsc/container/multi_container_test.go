@@ -2194,113 +2194,121 @@ func TestMultiContainerHomeEnvDir(t *testing.T) {
 }
 
 func TestMultiContainerEvent(t *testing.T) {
-	conf := testutil.TestConfig(t)
-	rootDir, cleanup, err := testutil.SetupRootDir()
-	if err != nil {
-		t.Fatalf("error creating root dir: %v", err)
-	}
-	defer cleanup()
-	conf.RootDir = rootDir
-
-	// Setup the containers.
-	sleep := []string{"/bin/sh", "-c", "/bin/sleep 100 | grep 123"}
-	busy := []string{"/bin/bash", "-c", "i=0 ; while true ; do (( i += 1 )) ; done"}
-	quick := []string{"/bin/true"}
-	podSpec, ids := createSpecs(sleep, busy, quick)
-	containers, cleanup, err := startContainers(conf, podSpec, ids)
-	if err != nil {
-		t.Fatalf("error starting containers: %v", err)
-	}
-	defer cleanup()
-
-	t.Logf("Running container sleep %s", containers[0].ID)
-	t.Logf("Running container busy %s", containers[1].ID)
-	t.Logf("Running container quick %s", containers[2].ID)
-
-	// Wait for containers to start (last container should complete).
-	if err := waitForProcessCount(containers[0], 3); err != nil {
-		t.Errorf("failed to wait for sleep to start: %v", err)
-	}
-	if err := waitForProcessCount(containers[1], 1); err != nil {
-		t.Errorf("failed to wait for bash to start: %v", err)
-	}
-	if ws, err := containers[2].Wait(); err != nil || ws != 0 {
-		t.Fatalf("Container.Wait, status: %v, err: %v", ws, err)
-	}
-
-	// Check events for running containers.
-	for i, cont := range containers[:2] {
-		ret, err := cont.Event()
-		if err != nil {
-			t.Errorf("Container.Event(%q): %v", cont.ID, err)
+	tests := []string{"enableCgroups", "disableCgroups"}
+	for _, name := range tests {
+		conf := testutil.TestConfig(t)
+		if name == "enableCgroups" {
+			conf.Cgroupfs = true
 		}
-		evt := ret.Event
-		if want := "stats"; evt.Type != want {
-			t.Errorf("Wrong event type, cid: %q, want: %s, got: %s", cont.ID, want, evt.Type)
-		}
-		if cont.ID != evt.ID {
-			t.Errorf("Wrong container ID, want: %s, got: %s", cont.ID, evt.ID)
-		}
-
-		// container[0] expects 3 processes, while container[1] expects 1.
-		wantPids := 3
-		if i == 1 {
-			wantPids = 1
-		}
-		if got := evt.Data.Pids.Current; got != uint64(wantPids) {
-			t.Errorf("Wrong number of PIDs, cid: %q, want: %d, got: %d", cont.ID, wantPids, got)
-		}
-
-		switch i {
-		case 0:
-			if evt.Data.Memory.Usage.Usage != uint64(0) {
-				t.Errorf("root container should report 0 memory usage, got: %v", evt.Data.Memory.Usage.Usage)
+		t.Run(name, func(t *testing.T) {
+			rootDir, cleanup, err := testutil.SetupRootDir()
+			if err != nil {
+				t.Fatalf("error creating root dir: %v", err)
 			}
-		case 1:
-			if evt.Data.Memory.Usage.Usage == uint64(0) {
-				t.Error("sub-container should report non-zero memory usage")
+			defer cleanup()
+			conf.RootDir = rootDir
+
+			// Setup the containers.
+			sleep := []string{"/bin/sh", "-c", "/bin/sleep 100 | grep 123"}
+			busy := []string{"/bin/bash", "-c", "i=0 ; while true ; do (( i += 1 )) ; done"}
+			quick := []string{"/bin/true"}
+			podSpec, ids := createSpecs(sleep, busy, quick)
+			containers, cleanup, err := startContainers(conf, podSpec, ids)
+			if err != nil {
+				t.Fatalf("error starting containers: %v", err)
 			}
-		}
+			defer cleanup()
 
-		// The exited container should always have a usage of zero.
-		if exited := ret.ContainerUsage[containers[2].ID]; exited != 0 {
-			t.Errorf("Exited container should report 0 CPU usage, got: %d", exited)
-		}
-	}
+			t.Logf("Running container sleep %s", containers[0].ID)
+			t.Logf("Running container busy %s", containers[1].ID)
+			t.Logf("Running container quick %s", containers[2].ID)
 
-	// Check that CPU reported by busy container is higher than sleep.
-	cb := func() error {
-		sleepEvt, err := containers[0].Event()
-		if err != nil {
-			return &backoff.PermanentError{Err: err}
-		}
-		sleepUsage := sleepEvt.Event.Data.CPU.Usage.Total
+			// Wait for containers to start (last container should complete).
+			if err := waitForProcessCount(containers[0], 3); err != nil {
+				t.Errorf("failed to wait for sleep to start: %v", err)
+			}
+			if err := waitForProcessCount(containers[1], 1); err != nil {
+				t.Errorf("failed to wait for bash to start: %v", err)
+			}
+			if ws, err := containers[2].Wait(); err != nil || ws != 0 {
+				t.Fatalf("Container.Wait, status: %v, err: %v", ws, err)
+			}
 
-		busyEvt, err := containers[1].Event()
-		if err != nil {
-			return &backoff.PermanentError{Err: err}
-		}
-		busyUsage := busyEvt.Event.Data.CPU.Usage.Total
+			// Check events for running containers.
+			for i, cont := range containers[:2] {
+				ret, err := cont.Event()
+				if err != nil {
+					t.Errorf("Container.Event(%q): %v", cont.ID, err)
+				}
+				evt := ret.Event
+				if want := "stats"; evt.Type != want {
+					t.Errorf("Wrong event type, cid: %q, want: %s, got: %s", cont.ID, want, evt.Type)
+				}
+				if cont.ID != evt.ID {
+					t.Errorf("Wrong container ID, want: %s, got: %s", cont.ID, evt.ID)
+				}
 
-		if busyUsage <= sleepUsage {
-			t.Logf("Busy container usage lower than sleep (busy: %d, sleep: %d), retrying...", busyUsage, sleepUsage)
-			return fmt.Errorf("busy container should have higher usage than sleep, busy: %d, sleep: %d", busyUsage, sleepUsage)
-		}
-		return nil
-	}
-	// Give time for busy container to run and use more CPU than sleep.
-	if err := testutil.Poll(cb, 10*time.Second); err != nil {
-		t.Fatal(err)
-	}
+				// container[0] expects 3 processes, while container[1] expects 1.
+				wantPids := 3
+				if i == 1 {
+					wantPids = 1
+				}
+				if got := evt.Data.Pids.Current; got != uint64(wantPids) {
+					t.Errorf("Wrong number of PIDs, cid: %q, want: %d, got: %d", cont.ID, wantPids, got)
+				}
 
-	// Check that stopped and destroyed containers return error.
-	if err := containers[1].Destroy(); err != nil {
-		t.Fatalf("container.Destroy: %v", err)
-	}
-	for _, cont := range containers[1:] {
-		if _, err := cont.Event(); err == nil {
-			t.Errorf("Container.Event() should have failed, cid: %q, state: %v", cont.ID, cont.Status)
-		}
+				switch i {
+				case 0:
+					if !conf.Cgroupfs && evt.Data.Memory.Usage.Usage != uint64(0) {
+						t.Errorf("root container should report 0 memory usage, got: %v", evt.Data.Memory.Usage.Usage)
+					}
+				case 1:
+					if evt.Data.Memory.Usage.Usage == uint64(0) {
+						t.Error("sub-container should report non-zero memory usage")
+					}
+				}
+
+				// The exited container should always have a usage of zero.
+				if exited := ret.ContainerUsage[containers[2].ID]; exited != 0 {
+					t.Errorf("Exited container should report 0 CPU usage, got: %d", exited)
+				}
+			}
+
+			// Check that CPU reported by busy container is higher than sleep.
+			cb := func() error {
+				sleepEvt, err := containers[0].Event()
+				if err != nil {
+					return &backoff.PermanentError{Err: err}
+				}
+				sleepUsage := sleepEvt.Event.Data.CPU.Usage.Total
+
+				busyEvt, err := containers[1].Event()
+				if err != nil {
+					return &backoff.PermanentError{Err: err}
+				}
+				busyUsage := busyEvt.Event.Data.CPU.Usage.Total
+
+				if busyUsage <= sleepUsage {
+					t.Logf("Busy container usage lower than sleep (busy: %d, sleep: %d), retrying...", busyUsage, sleepUsage)
+					return fmt.Errorf("busy container should have higher usage than sleep, busy: %d, sleep: %d", busyUsage, sleepUsage)
+				}
+				return nil
+			}
+			// Give time for busy container to run and use more CPU than sleep.
+			if err := testutil.Poll(cb, 10*time.Second); err != nil {
+				t.Fatal(err)
+			}
+
+			// Check that stopped and destroyed containers return error.
+			if err := containers[1].Destroy(); err != nil {
+				t.Fatalf("container.Destroy: %v", err)
+			}
+			for _, cont := range containers[1:] {
+				if _, err := cont.Event(); err == nil {
+					t.Errorf("Container.Event() should have failed, cid: %q, state: %v", cont.ID, cont.Status)
+				}
+			}
+		})
 	}
 }
 
@@ -2664,5 +2672,80 @@ func TestMultiContainerMemoryLeakStress(t *testing.T) {
 			t.Fatalf("Memory usage after stress containers exited did not converge to memory usage after warmup")
 		}
 		time.Sleep(time.Second)
+	}
+}
+
+func TestMultiContainerCgroupsMemoryUsage(t *testing.T) {
+	_, err := testutil.FindFile("test/cmd/test_app/test_app")
+	if err != nil {
+		t.Fatal("error finding test_app:", err)
+	}
+
+	for name, conf := range configs(t, false /* noOverlay */) {
+		conf.Cgroupfs = true
+		t.Run(name, func(t *testing.T) {
+			rootDir, cleanup, err := testutil.SetupRootDir()
+			if err != nil {
+				t.Fatalf("error creating root dir: %v", err)
+			}
+			defer cleanup()
+			conf.RootDir = rootDir
+
+			podSpecs, ids := createSpecs(
+				[]string{"sleep", "100"},
+				[]string{"sleep", "10"})
+
+			podSpecs[1].Linux = &specs.Linux{
+				Namespaces: []specs.LinuxNamespace{{Type: "pid"}},
+			}
+			containers, cleanup, err := startContainers(conf, podSpecs, ids)
+			if err != nil {
+				t.Fatalf("error starting containers: %v", err)
+			}
+			defer cleanup()
+
+			ctrlRoot := control.CgroupControlFile{
+				Controller: "memory",
+				Path:       "/",
+				Name:       "memory.usage_in_bytes",
+			}
+			ctrl1 := control.CgroupControlFile{
+				Controller: "memory",
+				Path:       "/" + containers[0].ID,
+				Name:       "memory.usage_in_bytes",
+			}
+			ctrl2 := control.CgroupControlFile{
+				Controller: "memory",
+				Path:       "/" + containers[1].ID,
+				Name:       "memory.usage_in_bytes",
+			}
+
+			usageTotal, err := containers[0].Sandbox.CgroupsReadControlFile(ctrlRoot)
+			if err != nil {
+				t.Fatalf("error getting total usage %v", err)
+			}
+			usage1, err := containers[0].Sandbox.CgroupsReadControlFile(ctrl1)
+			if err != nil {
+				t.Fatalf("error getting container1 usage %v", err)
+			}
+			usage2, err := containers[1].Sandbox.CgroupsReadControlFile(ctrl2)
+			if err != nil {
+				t.Fatalf("error getting container2 usage %v", err)
+			}
+			if usageTotal < (usage1 + usage2) {
+				t.Fatalf("error total usage is less total %v container1_usage %v container2_usage %v", usageTotal, usage1, usage2)
+			}
+
+			// Wait for the second container to exit and check that the new usage must
+			// be less than the old usage..
+			time.Sleep(12 * time.Second)
+			newUsageTotal, err := containers[0].Sandbox.CgroupsReadControlFile(ctrlRoot)
+			if err != nil {
+				t.Fatalf("error getting total usage %v", err)
+			}
+			if newUsageTotal >= usageTotal {
+				t.Fatalf("error new total usage %v is not less than old total usage %v", newUsageTotal, usageTotal)
+			}
+		})
 	}
 }
