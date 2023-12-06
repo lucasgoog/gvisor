@@ -104,5 +104,5 @@ def bpf_program(name, src, bpf_object, visibility, hdrs):
         srcs = [src],
         visibility = visibility,
         outs = [bpf_object],
-        cmd = "clang -O2 -Wall -Werror -target bpf -c $< -o $@ -I/usr/include/$$(uname -m)-linux-gnu",
+        cmd = "clang -O2 -Wall -Werror -target bpf -c $< -o $@ -I/usr/include/$$(uname -m)-linux-gnu -D __x86_64__",
     )
