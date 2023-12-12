@@ -22,7 +22,6 @@ import (
 	"fmt"
 
 	"gvisor.dev/gvisor/pkg/abi/nvgpu"
-	"gvisor.dev/gvisor/pkg/context"
 	"gvisor.dev/gvisor/pkg/hostarch"
 	"gvisor.dev/gvisor/pkg/log"
 	"gvisor.dev/gvisor/pkg/marshal"
@@ -70,9 +69,9 @@ func Register(vfsObj *vfs.VirtualFilesystem, versionStr string, uvmDevMajor uint
 
 // +stateify savable
 type nvproxy struct {
-	objsMu   objsMutex `state:"nosave"`
-	objsLive map[nvgpu.Handle]*object
-	abi      *driverABI `state:"nosave"`
+	objsMu   objsMutex                `state:"nosave"`
+	objsLive map[nvgpu.Handle]*object `state:"nosave"`
+	abi      *driverABI               `state:"nosave"`
 	version  DriverVersion
 }
 
@@ -88,12 +87,12 @@ func (o *object) init(impl objectImpl) {
 }
 
 // Release is called after the represented object is freed.
-func (o *object) Release(ctx context.Context) {
-	o.impl.Release(ctx)
+func (o *object) Release() {
+	o.impl.Release()
 }
 
 type objectImpl interface {
-	Release(ctx context.Context)
+	Release()
 }
 
 // osDescMem is an objectImpl tracking an OS descriptor.
@@ -105,8 +104,8 @@ type osDescMem struct {
 }
 
 // Release implements objectImpl.Release.
-func (o *osDescMem) Release(ctx context.Context) {
-	ctx.Infof("nvproxy: unpinning pages for released OS descriptor")
+func (o *osDescMem) Release() {
+	log.Infof("nvproxy: unpinning pages for released OS descriptor")
 	mm.Unpin(o.pinnedRanges)
 }
 

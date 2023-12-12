@@ -465,7 +465,7 @@ func rmFree(fi *frontendIoctlState) (uintptr, error) {
 	}
 	fi.fd.nvp.objsMu.Unlock()
 	if ok {
-		o.Release(fi.ctx)
+		o.Release()
 	}
 
 	if _, err := ioctlParams.CopyOut(fi.t, fi.ioctlParamsAddr); err != nil {

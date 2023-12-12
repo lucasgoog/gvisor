@@ -16,7 +16,18 @@ package nvproxy
 
 import (
 	"fmt"
+
+	"gvisor.dev/gvisor/pkg/abi/nvgpu"
 )
+
+func (n *nvproxy) beforeSave() {
+	n.objsMu.Lock()
+	defer n.objsMu.Unlock()
+	for _, o := range n.objsLive {
+		o.Release()
+	}
+	n.objsLive = nil
+}
 
 func (n *nvproxy) afterLoad() {
 	Init()
@@ -25,4 +36,5 @@ func (n *nvproxy) afterLoad() {
 		panic(fmt.Sprintf("driver version %q not found in abis map", n.version))
 	}
 	n.abi = abiCons.cons()
+	n.objsLive = make(map[nvgpu.Handle]*object)
 }
