@@ -14,5 +14,8 @@ go_test(
         "notap",
     ],
     visibility = ["//:sandbox"],
-    deps = ["//pkg/test/dockerutil"],
+    deps = [
+        "//pkg/test/dockerutil",
+        "//pkg/test/testutil",
+    ],
 )
